@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     UnitOfTemperature,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -85,6 +86,18 @@ SENSOR_TYPES = [
         name="Operation mode",
         icon="mdi:fan",
         value_fn=lambda unit: unit.user_mode_name,
+    ),
+    
+    # User mode remaining time
+    SystemairSensorEntityDescription(
+        key="user_mode_remaining_time",
+        name="Mode remaining time",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        icon="mdi:timer-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda unit: round(getattr(unit, 'user_mode_remaining_time', 0) / 60, 1) if getattr(unit, 'user_mode_remaining_time', None) is not None else None,
     ),
     
     # Removed airflow percentage sensor as it doesn't exist
