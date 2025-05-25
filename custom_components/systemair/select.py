@@ -7,13 +7,23 @@ from typing import Any, Dict, Final
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from systemair_api.utils.constants import UserModes
 from systemair_api.models.ventilation_unit import VentilationUnit
 
-from .const import DOMAIN, MODE_NAME_TO_VALUE
+from .const import (
+    DOMAIN, 
+    MODE_NAME_TO_VALUE,
+    CONF_BASE_OPERATION_MODE,
+    CONF_BASE_AIRFLOW_LEVEL,
+    AIRFLOW_LOW,
+    AIRFLOW_NORMAL,
+    AIRFLOW_HIGH,
+    AIRFLOW_LEVEL_TO_VALUE,
+)
 from .coordinator import SystemairUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +60,12 @@ AIRFLOW_LEVEL_TO_NAME = {v: k for k, v in AIRFLOW_NAME_TO_LEVEL.items()}
 # Reverse mapping for lookup
 MODE_NAME_TO_MODE_VALUE = {v: k for k, v in MODE_OPTIONS.items()}
 
+# Base operation mode options (configuration)
+BASE_OPERATION_MODE_OPTIONS = list(MODE_NAME_TO_VALUE.keys())
+
+# Base airflow level options for manual mode (configuration)
+BASE_AIRFLOW_LEVEL_OPTIONS = [AIRFLOW_LOW, AIRFLOW_NORMAL, AIRFLOW_HIGH]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -66,6 +82,10 @@ async def async_setup_entry(
         
         # Add airflow level select entity
         entities.append(SystemairAirflowLevelSelect(coordinator, unit_id))
+        
+        # Add configuration entities
+        entities.append(SystemairBaseOperationModeSelect(coordinator, unit_id))
+        entities.append(SystemairBaseAirflowLevelSelect(coordinator, unit_id))
 
     async_add_entities(entities)
 
@@ -257,3 +277,113 @@ class SystemairAirflowLevelSelect(CoordinatorEntity, SelectEntity):
                 # Use optimistic update
                 self._unit.airflow = level
                 self.async_write_ha_state()
+
+
+class SystemairBaseOperationModeSelect(CoordinatorEntity, SelectEntity):
+    """Configuration entity for base operation mode."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Default Operation Mode"
+    _attr_icon = "mdi:cog"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = BASE_OPERATION_MODE_OPTIONS
+
+    def __init__(self, coordinator: SystemairUpdateCoordinator, unit_id: str) -> None:
+        """Initialize the base operation mode select entity."""
+        super().__init__(coordinator)
+        self._unit_id = unit_id
+        self._unit = coordinator.units[unit_id]
+        self._attr_unique_id = f"{unit_id}_base_operation_mode_config"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, unit_id)},
+            "name": self._unit.name,
+            "manufacturer": "Systemair",
+            "model": self._unit.model or "Systemair Ventilation Unit",
+            "sw_version": next((v.get("version") for v in self._unit.versions if v.get("type") == "SW"), None),
+        }
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the current base operation mode from config."""
+        # Get the config entry for this unit
+        config_entry = None
+        for entry_id, coordinator in self.hass.data[DOMAIN].items():
+            if self._unit_id in coordinator.units:
+                config_entry = self.hass.config_entries.async_get_entry(entry_id)
+                break
+        
+        if config_entry:
+            from .const import DEFAULT_BASE_OPERATION_MODE
+            return config_entry.data.get(CONF_BASE_OPERATION_MODE, DEFAULT_BASE_OPERATION_MODE)
+        return None
+
+    async def async_select_option(self, option: str) -> None:
+        """Update the base operation mode configuration."""
+        # Find the config entry
+        config_entry = None
+        for entry_id, coordinator in self.hass.data[DOMAIN].items():
+            if self._unit_id in coordinator.units:
+                config_entry = self.hass.config_entries.async_get_entry(entry_id)
+                break
+        
+        if config_entry:
+            # Update the config entry data
+            new_data = {**config_entry.data, CONF_BASE_OPERATION_MODE: option}
+            self.hass.config_entries.async_update_entry(config_entry, data=new_data)
+            _LOGGER.info(f"Updated base operation mode to: {option}")
+            self.async_write_ha_state()
+
+
+class SystemairBaseAirflowLevelSelect(CoordinatorEntity, SelectEntity):
+    """Configuration entity for base airflow level (manual mode)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Default Airflow Level"
+    _attr_icon = "mdi:fan-speed-1"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = BASE_AIRFLOW_LEVEL_OPTIONS
+
+    def __init__(self, coordinator: SystemairUpdateCoordinator, unit_id: str) -> None:
+        """Initialize the base airflow level select entity."""
+        super().__init__(coordinator)
+        self._unit_id = unit_id
+        self._unit = coordinator.units[unit_id]
+        self._attr_unique_id = f"{unit_id}_base_airflow_level_config"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, unit_id)},
+            "name": self._unit.name,
+            "manufacturer": "Systemair",
+            "model": self._unit.model or "Systemair Ventilation Unit",
+            "sw_version": next((v.get("version") for v in self._unit.versions if v.get("type") == "SW"), None),
+        }
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the current base airflow level from config."""
+        # Get the config entry for this unit
+        config_entry = None
+        for entry_id, coordinator in self.hass.data[DOMAIN].items():
+            if self._unit_id in coordinator.units:
+                config_entry = self.hass.config_entries.async_get_entry(entry_id)
+                break
+        
+        if config_entry:
+            from .const import DEFAULT_BASE_AIRFLOW_LEVEL
+            return config_entry.data.get(CONF_BASE_AIRFLOW_LEVEL, DEFAULT_BASE_AIRFLOW_LEVEL)
+        return None
+
+    async def async_select_option(self, option: str) -> None:
+        """Update the base airflow level configuration."""
+        # Find the config entry
+        config_entry = None
+        for entry_id, coordinator in self.hass.data[DOMAIN].items():
+            if self._unit_id in coordinator.units:
+                config_entry = self.hass.config_entries.async_get_entry(entry_id)
+                break
+        
+        if config_entry:
+            # Update the config entry data
+            new_data = {**config_entry.data, CONF_BASE_AIRFLOW_LEVEL: option}
+            self.hass.config_entries.async_update_entry(config_entry, data=new_data)
+            _LOGGER.info(f"Updated base airflow level to: {option}")
+            self.async_write_ha_state()

@@ -19,6 +19,18 @@
           "duration_refresh": "Refresh Mode Duration (minutes)",
           "duration_crowded": "Crowded Mode Duration (hours)"
         }
+      },
+      "base_operation": {
+        "title": "Base Operation Settings",
+        "description": "Configure the default operation mode and airflow settings. {note}",
+        "data": {
+          "base_operation_mode": "Default Operation Mode",
+          "base_airflow_level": "Airflow Level (for Manual mode)"
+        },
+        "data_description": {
+          "base_operation_mode": "The default ventilation mode when no specific mode is active",
+          "base_airflow_level": "Airflow level for manual mode: {airflow_levels}"
+        }
       }
     },
     "error": {
@@ -28,6 +40,33 @@
     },
     "abort": {
       "already_configured": "Account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "durations": {
+        "title": "Default Mode Durations",
+        "description": "Set default duration times for timed ventilation modes",
+        "data": {
+          "duration_holiday": "Holiday Mode Duration (days)",
+          "duration_away": "Away Mode Duration (hours)",
+          "duration_fireplace": "Fireplace Mode Duration (minutes)",
+          "duration_refresh": "Refresh Mode Duration (minutes)",
+          "duration_crowded": "Crowded Mode Duration (hours)"
+        }
+      },
+      "base_operation": {
+        "title": "Base Operation Settings",
+        "description": "Configure the default operation mode and airflow settings. {note}",
+        "data": {
+          "base_operation_mode": "Default Operation Mode",
+          "base_airflow_level": "Airflow Level (for Manual mode)"
+        },
+        "data_description": {
+          "base_operation_mode": "The default ventilation mode when no specific mode is active",
+          "base_airflow_level": "Airflow level for manual mode: {airflow_levels}"
+        }
+      }
     }
   },
   "services": {
