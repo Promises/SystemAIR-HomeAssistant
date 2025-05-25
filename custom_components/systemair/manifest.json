@@ -1,0 +1,15 @@
+{
+  "domain": "systemair",
+  "name": "SystemAIR",
+  "codeowners": ["@promises"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/promises/SystemAIR-API",
+  "homekit": {},
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/promises/SystemAIR-API/issues",
+  "requirements": ["systemair-api-promises>=0.1.0"],
+  "ssdp": [],
+  "version": "0.2.3",
+  "zeroconf": []
+}

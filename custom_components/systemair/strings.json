@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your SystemAIR account",
+        "description": "Set up integration with Systemair Home Solutions cloud",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      },
+      "durations": {
+        "title": "Default Mode Durations",
+        "description": "Set default duration times for timed ventilation modes",
+        "data": {
+          "duration_holiday": "Holiday Mode Duration (days)",
+          "duration_away": "Away Mode Duration (hours)",
+          "duration_fireplace": "Fireplace Mode Duration (minutes)",
+          "duration_refresh": "Refresh Mode Duration (minutes)",
+          "duration_crowded": "Crowded Mode Duration (hours)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Systemair API",
+      "invalid_auth": "Invalid authentication credentials",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured"
+    }
+  }
+}

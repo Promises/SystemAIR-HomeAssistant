@@ -1,0 +1,77 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your Systemair account",
+        "description": "Please enter your Systemair credentials to connect to your ventilation units.",
+        "data": {
+          "username": "Email address",
+          "password": "Password"
+        }
+      },
+      "durations": {
+        "title": "Default Mode Durations",
+        "description": "Set default duration times for timed ventilation modes",
+        "data": {
+          "duration_holiday": "Holiday Mode Duration (days)",
+          "duration_away": "Away Mode Duration (hours)",
+          "duration_fireplace": "Fireplace Mode Duration (minutes)",
+          "duration_refresh": "Refresh Mode Duration (minutes)",
+          "duration_crowded": "Crowded Mode Duration (hours)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid authentication credentials",
+      "cannot_connect": "Failed to connect to the Systemair API",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured"
+    }
+  },
+  "services": {
+    "set_user_mode": {
+      "name": "Set user mode",
+      "description": "Sets the operation mode of the ventilation unit.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "Entity ID of a Systemair device"
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "The operation mode to set (auto, manual, crowded, refresh, fireplace, away, holiday)"
+        }
+      }
+    },
+    "set_manual_airflow": {
+      "name": "Set manual airflow",
+      "description": "Sets the manual airflow level of the ventilation unit (1-5).",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "Entity ID of a Systemair device"
+        },
+        "airflow_level": {
+          "name": "Airflow level",
+          "description": "The airflow level to set (1-5)"
+        }
+      }
+    },
+    "set_room_temp_setpoint": {
+      "name": "Set room temperature setpoint",
+      "description": "Sets the room temperature setpoint of the ventilation unit.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "Entity ID of a Systemair device"
+        },
+        "temperature": {
+          "name": "Temperature",
+          "description": "The temperature setpoint to set (12-28°C)"
+        }
+      }
+    }
+  }
+}
