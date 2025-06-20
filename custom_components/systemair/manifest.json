@@ -8,8 +8,8 @@
   "homekit": {},
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/promises/SystemAIR-API/issues",
-  "requirements": ["systemair-api-promises>=0.1.0"],
+  "requirements": ["systemair-api-promises>=0.1.1"],
   "ssdp": [],
-  "version": "0.2.3",
+  "version": "1.2.1",
   "zeroconf": []
 }
