@@ -5,6 +5,7 @@ import asyncio
 import logging
 import json
 import os
+import random
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -22,6 +23,36 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
+
+
+async def retry_with_backoff(func, max_retries=3, base_delay=1, max_delay=60):
+    """Retry a function with exponential backoff."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await func() if asyncio.iscoroutinefunction(func) else func()
+        except Exception as ex:
+            if attempt == max_retries:
+                raise ex
+            
+            # Check for specific errors that shouldn't be retried
+            error_str = str(ex).lower()
+            if "authentication" in error_str or "unauthorized" in error_str:
+                raise ex
+                
+            # Calculate delay with jitter
+            delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
+            
+            # Log specific error types
+            if "server_busy" in error_str or "busy" in error_str:
+                _LOGGER.warning(f"Device busy, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries + 1}): {ex}")
+            elif "500" in error_str or "internal server error" in error_str:
+                _LOGGER.warning(f"Server error, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries + 1}): {ex}")
+            elif "timeout" in error_str:
+                _LOGGER.warning(f"Request timeout, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries + 1}): {ex}")
+            else:
+                _LOGGER.warning(f"Request failed, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries + 1}): {ex}")
+            
+            await asyncio.sleep(delay)
 
 
 class SystemairUpdateCoordinator(DataUpdateCoordinator):
@@ -113,19 +144,22 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
                         # Create VentilationUnit instance
                         unit = VentilationUnit(device_id, device_name)
                         
-                        # Try to get device status
+                        # Try to get device status with retry
                         try:
-                            status = await self.hass.async_add_executor_job(
-                                self.api.fetch_device_status, device_id
-                            )
+                            async def fetch_status():
+                                return await self.hass.async_add_executor_job(
+                                    self.api.fetch_device_status, device_id
+                                )
+                            
+                            status = await retry_with_backoff(fetch_status, max_retries=2)
                             unit.update_from_api(status)
                         except Exception as ex:
-                            _LOGGER.warning(f"Failed to fetch initial status for {device_name}: {ex}")
+                            _LOGGER.error(f"Failed to fetch initial status for {device_name} after retries: {ex}")
                             
                         # Add to units dictionary
                         self.units[device_id] = unit
                 
-                # Setup WebSocket connection for real-time updates
+                # Setup WebSocket connection for real-time updates with retry
                 try:
                     # Create a callback function to handle websocket messages
                     def handle_ws_message(message: Dict[str, Any]) -> None:
@@ -168,18 +202,19 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
                         else:
                             _LOGGER.debug(f"Received WebSocket message of type: {message.get('type')}, action: {message.get('action')}")
                     
-                    # Initialize the WebSocket client
-                    self.websocket = SystemairWebSocket(
-                        access_token=self.authenticator.access_token,
-                        on_message_callback=handle_ws_message
-                    )
+                    # Initialize and connect WebSocket with retry
+                    async def connect_websocket():
+                        self.websocket = SystemairWebSocket(
+                            access_token=self.authenticator.access_token,
+                            on_message_callback=handle_ws_message
+                        )
+                        return await self.hass.async_add_executor_job(self.websocket.connect)
                     
-                    # Connect to the WebSocket in an executor
-                    await self.hass.async_add_executor_job(self.websocket.connect)
+                    await retry_with_backoff(connect_websocket, max_retries=2, base_delay=2)
                     _LOGGER.debug("WebSocket connection established")
                     
                 except Exception as ex:
-                    _LOGGER.warning(f"Failed to connect WebSocket: {ex}")
+                    _LOGGER.error(f"Failed to connect WebSocket after retries: {ex}")
                 
                 self.available = True
                 _LOGGER.debug(f"Found {len(self.units)} ventilation units")
@@ -244,16 +279,25 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
                     await self.hass.async_add_executor_job(self.websocket.connect)
                     _LOGGER.debug("WebSocket reconnected")
                 
-            # Update unit data by fetching latest status
-            for unit_id, unit in self.units.items():
+            # Update unit data by fetching latest status with staggered requests
+            for i, (unit_id, unit) in enumerate(self.units.items()):
+                # Add small delay between requests to avoid overwhelming the device
+                if i > 0:
+                    await asyncio.sleep(0.5)
+                    
                 try:
-                    status = await self.hass.async_add_executor_job(
-                        self.api.fetch_device_status, unit_id
-                    )
+                    async def fetch_unit_status():
+                        return await self.hass.async_add_executor_job(
+                            self.api.fetch_device_status, unit_id
+                        )
+                    
+                    status = await retry_with_backoff(fetch_unit_status, max_retries=3, base_delay=2)
                     unit.update_from_api(status)
                     _LOGGER.debug(f"Updated unit {unit_id} from API: airflow={unit.airflow}, mode={unit.user_mode}")
                 except Exception as ex:
-                    _LOGGER.warning(f"Failed to update unit {unit_id}: {ex}")
+                    _LOGGER.error(f"Failed to update unit {unit_id} after retries: {ex}")
+                    # Don't mark coordinator as unavailable for individual unit failures
+                    continue
             
             # Return a dictionary with the unit data
             return {unit_id: unit for unit_id, unit in self.units.items()}
@@ -280,17 +324,45 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
             # Use set_mode_with_time which will handle time values automatically
             return self.set_mode_with_time(unit_id, mode, None)
         else:
-            # For non-timed modes (AUTO, MANUAL), use direct mode setting
+            # For non-timed modes (AUTO, MANUAL), use direct mode setting with retry
             unit = self.units.get(unit_id)
             if unit and self.api:
                 try:
-                    result = unit.set_user_mode(self.api, mode)
-                    if result:
-                        # Update local state for optimistic updates
-                        unit.user_mode = mode
-                    return result
+                    def set_mode():
+                        return unit.set_user_mode(self.api, mode)
+                    
+                    # Use sync version of retry since this method isn't async
+                    for attempt in range(4):  # 3 retries + initial attempt
+                        try:
+                            result = set_mode()
+                            if result:
+                                # Update local state for optimistic updates
+                                unit.user_mode = mode
+                            return result
+                        except Exception as ex:
+                            if attempt == 3:  # Final attempt
+                                raise ex
+                            
+                            error_str = str(ex).lower()
+                            if "authentication" in error_str or "unauthorized" in error_str:
+                                raise ex
+                                
+                            delay = min(1 * (2 ** attempt) + random.uniform(0, 0.5), 30)
+                            
+                            if "server_busy" in error_str or "busy" in error_str:
+                                _LOGGER.warning(f"Device busy setting mode, retrying in {delay:.1f}s (attempt {attempt + 1}/4): {ex}")
+                            elif "500" in error_str or "internal server error" in error_str:
+                                _LOGGER.warning(f"Server error setting mode, retrying in {delay:.1f}s (attempt {attempt + 1}/4): {ex}")
+                            elif "timeout" in error_str:
+                                _LOGGER.warning(f"Timeout setting mode, retrying in {delay:.1f}s (attempt {attempt + 1}/4): {ex}")
+                            else:
+                                _LOGGER.warning(f"Failed to set mode, retrying in {delay:.1f}s (attempt {attempt + 1}/4): {ex}")
+                            
+                            import time
+                            time.sleep(delay)
+                            
                 except Exception as err:
-                    _LOGGER.error(f"Failed to set mode: {err}")
+                    _LOGGER.error(f"Failed to set mode after retries: {err}")
             return False
                 
     def set_mode_with_time(self, unit_id: str, mode: int, time_minutes: Optional[int] = None) -> bool:
