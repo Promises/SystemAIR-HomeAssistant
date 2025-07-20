@@ -10,6 +10,6 @@
   "issue_tracker": "https://github.com/promises/SystemAIR-API/issues",
   "requirements": ["systemair-api-promises>=0.1.1"],
   "ssdp": [],
-  "version": "1.2.1",
+  "version": "1.2.2",
   "zeroconf": []
 }
