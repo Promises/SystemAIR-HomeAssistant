@@ -11,12 +11,18 @@ from typing import Any, Dict, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
 
 from systemair_api import SystemairAPI, SystemairAuthenticator, VentilationUnit
 from systemair_api.api.websocket_client import SystemairWebSocket
-from systemair_api.utils.exceptions import SystemairError, TokenRefreshError, APIError
+from systemair_api.utils.exceptions import (
+    SystemairError,
+    TokenRefreshError,
+    APIError,
+    InvalidCredentialsError,
+)
 from systemair_api.utils.constants import UserModes
 
 from .const import DOMAIN
@@ -82,13 +88,32 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
             update_interval=SCAN_INTERVAL,
         )
 
+    async def _async_login(self) -> None:
+        """Log in with the stored username and password."""
+        try:
+            await self.hass.async_add_executor_job(self.authenticator.authenticate)
+        except InvalidCredentialsError as err:
+            raise ConfigEntryAuthFailed("SystemAIR rejected the stored credentials") from err
+
+    async def _async_renew_token(self) -> None:
+        """Renew the access token, falling back to a full login.
+
+        The server can end the SSO session behind a refresh token, after which
+        every refresh fails with invalid_grant. Only a new login recovers from that.
+        """
+        try:
+            await self.hass.async_add_executor_job(self.authenticator.refresh_access_token)
+        except TokenRefreshError as err:
+            _LOGGER.warning(f"Token refresh failed, logging in again: {err}")
+            await self._async_login()
+
     async def _async_update_data(self) -> dict[str, VentilationUnit]:
         """Fetch data from SystemAIR API."""
         try:
             # Authenticate if needed
             if not self.api:
                 _LOGGER.debug("Authenticating with SystemAIR API")
-                await self.hass.async_add_executor_job(self.authenticator.authenticate)
+                await self._async_login()
                 
                 # Create API instance with the access token
                 self.api = SystemairAPI(access_token=self.authenticator.access_token)
@@ -222,7 +247,7 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
             # Check if token needs refresh
             if not self.authenticator.is_token_valid():
                 _LOGGER.debug("Refreshing auth token")
-                await self.hass.async_add_executor_job(self.authenticator.refresh_access_token)
+                await self._async_renew_token()
                 self.api.update_token(self.authenticator.access_token)
                 
                 # If we have a WebSocket connection, recreate it with the new token

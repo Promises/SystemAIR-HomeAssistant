@@ -3,18 +3,19 @@ from __future__ import annotations
 
 import logging
 import hashlib
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from systemair_api import SystemairAuthenticator
-from systemair_api.utils.exceptions import AuthenticationError, SystemairError
+from systemair_api.utils.exceptions import InvalidCredentialsError, SystemairError
 
 from .const import (
     DOMAIN,
@@ -48,6 +49,12 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     }
 )
 
+STEP_REAUTH_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_PASSWORD): str,
+    }
+)
+
 STEP_DURATIONS_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_DURATION_HOLIDAY, default=DEFAULT_DURATION_HOLIDAY): vol.Coerce(int),    # days
@@ -66,6 +73,20 @@ STEP_BASE_OPERATION_DATA_SCHEMA = vol.Schema(
 )
 
 
+async def validate_credentials(hass: HomeAssistant, username: str, password: str) -> None:
+    """Log in once to check the credentials.
+
+    Raises InvalidAuth if the server rejects them, CannotConnect if it could not be reached.
+    """
+    authenticator = SystemairAuthenticator(email=username, password=password)
+    try:
+        await hass.async_add_executor_job(authenticator.authenticate)
+    except InvalidCredentialsError as err:
+        raise InvalidAuth from err
+    except SystemairError as err:
+        raise CannotConnect from err
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for SystemAIR."""
 
@@ -75,7 +96,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -89,12 +110,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                # Try to connect to SystemAIR with the provided credentials
-                authenticator = SystemairAuthenticator(
-                    email=user_input[CONF_USERNAME],
-                    password=user_input[CONF_PASSWORD],
+                await validate_credentials(
+                    self.hass, user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
                 )
-                await self.hass.async_add_executor_job(authenticator.authenticate)
                 
                 # Generate a unique ID based on the email
                 # This is used instead of account_id which is not available
@@ -109,9 +127,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Proceed to duration settings
                 return await self.async_step_durations()
                 
-            except AuthenticationError:
+            except InvalidAuth:
                 errors["base"] = "invalid_auth"
-            except SystemairError:
+            except CannotConnect:
                 errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
@@ -119,6 +137,43 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> FlowResult:
+        """Handle the stored credentials being rejected."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Ask for a new password for the existing account."""
+        errors: dict[str, str] = {}
+        reauth_entry = self._get_reauth_entry()
+        username = reauth_entry.data[CONF_USERNAME]
+
+        if user_input is not None:
+            try:
+                await validate_credentials(self.hass, username, user_input[CONF_PASSWORD])
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    reauth_entry,
+                    data_updates={CONF_PASSWORD: user_input[CONF_PASSWORD]},
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=STEP_REAUTH_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders={"username": username},
         )
         
     async def async_step_durations(
@@ -213,10 +268,6 @@ class InvalidAuth(HomeAssistantError):
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle SystemAIR options."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -298,14 +349,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors[CONF_BASE_AIRFLOW_LEVEL] = "Please select a valid airflow level for manual mode"
             
             if not errors:
-                # Combine all data and update the config entry
+                # The integration reads these settings from entry.data, so store
+                # them there rather than in entry.options
                 new_data = {
                     **self.config_entry.data,
                     **self.duration_data,
                     **user_input
                 }
-                
-                return self.async_create_entry(title="", data=new_data)
+                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+
+                return self.async_create_entry(title="", data={})
         
         # Get current values from config entry
         current_data = self.config_entry.data

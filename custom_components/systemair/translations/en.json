@@ -31,6 +31,13 @@
           "base_operation_mode": "The default ventilation mode when no specific mode is active",
           "base_airflow_level": "Airflow level for manual mode: {airflow_levels}"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate SystemAIR",
+        "description": "Systemair rejected the stored password for {username}. Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -39,7 +46,8 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Account is already configured"
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Reauthentication was successful"
     }
   },
   "options": {

@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.0
+
+### Fixed
+- Recover on its own when Systemair ends the login session: a failed token refresh
+  (`invalid_grant: Token is not active`) now falls back to a full login with the stored
+  credentials. Previously the integration retried the dead refresh token every 30
+  seconds forever and stayed unavailable until it was reloaded.
+- Opening Configure crashed on current Home Assistant (options flow assigned
+  `config_entry`).
+- Changes saved in Configure were ignored: they were stored in the entry options,
+  but every entity reads the entry data.
+
+### Added
+- Reauthentication flow: if Systemair rejects the stored password, Home Assistant
+  asks for a new one instead of failing silently.
+- The setup form reports "cannot connect" during a Systemair outage instead of
+  "invalid authentication".
+
+### Changed
+- Requires systemair-api-promises 0.2.0.
+
 ## 0.2.3
 
 ### Added
