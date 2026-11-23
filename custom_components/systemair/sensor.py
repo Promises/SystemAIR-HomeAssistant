@@ -60,6 +60,14 @@ SENSOR_TYPES = [
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         value_fn=lambda unit: unit.temperatures.get('sat'),
     ),
+    SystemairSensorEntityDescription(
+        key="extract_temp",
+        name="Extract temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        value_fn=lambda unit: unit.temperatures.get('eat'),
+    ),
     
     # Humidity sensors
     SystemairSensorEntityDescription(

@@ -6,6 +6,7 @@ import logging
 import json
 import os
 import random
+import time
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -29,6 +30,9 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
+# Each read is a Modbus request on the unit, which answers SERVER_BUSY when
+# polled too often; extract air changes slowly, so read it less often
+EXTRACT_AIR_INTERVAL = timedelta(minutes=5)
 
 
 async def retry_with_backoff(func, max_retries=3, base_delay=1, max_delay=60):
@@ -76,6 +80,7 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
         self.websocket = None
         self.units: Dict[str, VentilationUnit] = {}
         self.available = False
+        self._extract_air_fetched_at: Dict[str, float] = {}
         
         # Setup storage for time values
         self.storage = Store(hass, 1, f"systemair.{entry.entry_id}.time_values")
@@ -106,6 +111,24 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
         except TokenRefreshError as err:
             _LOGGER.warning(f"Token refresh failed, logging in again: {err}")
             await self._async_login()
+
+    async def _async_update_extract_air(self, unit_id: str, unit: VentilationUnit) -> None:
+        """Read the extract air temperature registers, at most every EXTRACT_AIR_INTERVAL.
+
+        A failed read keeps the previous value; it is retried on the next cycle.
+        """
+        last = self._extract_air_fetched_at.get(unit_id)
+        if last is not None and time.monotonic() - last < EXTRACT_AIR_INTERVAL.total_seconds():
+            return
+        try:
+            items = await self.hass.async_add_executor_job(
+                self.api.fetch_data_items, unit_id, VentilationUnit.EXTRACT_AIR_REGISTERS
+            )
+        except (SystemairError, TokenRefreshError, APIError) as ex:
+            _LOGGER.warning(f"Failed to read extract air temperature for unit {unit_id}: {ex}")
+            return
+        unit.update_from_data_items(items)
+        self._extract_air_fetched_at[unit_id] = time.monotonic()
 
     async def _async_update_data(self) -> dict[str, VentilationUnit]:
         """Fetch data from SystemAIR API."""
@@ -319,6 +342,7 @@ class SystemairUpdateCoordinator(DataUpdateCoordinator):
                     status = await retry_with_backoff(fetch_unit_status, max_retries=3, base_delay=2)
                     unit.update_from_api(status)
                     _LOGGER.debug(f"Updated unit {unit_id} from API: airflow={unit.airflow}, mode={unit.user_mode}")
+                    await self._async_update_extract_air(unit_id, unit)
                 except Exception as ex:
                     _LOGGER.error(f"Failed to update unit {unit_id} after retries: {ex}")
                     # Don't mark coordinator as unavailable for individual unit failures

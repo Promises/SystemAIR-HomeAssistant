@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0
+
+### Added
+- Extract temperature sensor (`sensor.<unit>_extract_temperature`). It is read every 5
+  minutes rather than every update, because each read is a Modbus request on the unit;
+  a failed read keeps the last value.
+
+### Changed
+- Requires systemair-api-promises 0.3.0.
+
 ## 1.3.0
 
 ### Fixed
